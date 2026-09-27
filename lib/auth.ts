@@ -31,10 +31,18 @@ export function validateSessionToken(token: string): boolean {
 export function verifyPassword(password: string): boolean {
   const expected = process.env.ADMIN_PASSWORD;
   if (!expected) return false;
-  return crypto.timingSafeEqual(
-    Buffer.from(password),
-    Buffer.from(expected)
-  );
+
+  const given = Buffer.from(password);
+  const target = Buffer.from(expected);
+
+  if (given.length !== target.length) {
+    // Esegue comunque un confronto a tempo costante per non rivelare
+    // la lunghezza, poi restituisce false.
+    crypto.timingSafeEqual(target, target);
+    return false;
+  }
+
+  return crypto.timingSafeEqual(given, target);
 }
 
 export { COOKIE_NAME };
