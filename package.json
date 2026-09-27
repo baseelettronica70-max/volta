@@ -1,5 +1,5 @@
 {
-  "name": "volta-scaffold",
+  "name": "volta",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "nanoid": "^5.1.16",
     "next": "16.3.5",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -22,5 +26,6 @@
     "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "description": "Vlog di elettronica in stile Apple"
 }
