@@ -11,6 +11,7 @@ export interface Article {
   slug: string;
   excerpt: string;
   content: string;
+  content_format: "html" | "markdown";
   cover: string | null;
   category_id: number | null;
   status: "draft" | "published";

@@ -26,12 +26,10 @@ export default async function ArticlePage({ params }: Props) {
 
   if (!article || article.status !== "published") notFound();
 
-  const mins = Math.max(
-    1,
-    Math.ceil(
-      article.content.replace(/[#*`>|\-\[\]]/g, "").split(/\s+/).length / 200
-    )
-  );
+  const text = article.content_format === "html"
+    ? article.content.replace(/<[^>]+>/g, " ")
+    : article.content.replace(/[#*`>|\-\[\]]/g, "");
+  const mins = Math.max(1, Math.ceil(text.split(/\s+/).filter(Boolean).length / 200));
 
   return (
     <article className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
@@ -102,7 +100,10 @@ export default async function ArticlePage({ params }: Props) {
       )}
 
       <div className="max-w-none">
-        <MarkdownRenderer content={article.content} />
+        <MarkdownRenderer
+          content={article.content}
+          format={article.content_format}
+        />
       </div>
 
       <div className="mt-16 pt-8 border-t border-card-border">

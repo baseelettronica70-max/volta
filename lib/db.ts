@@ -50,6 +50,7 @@ function toArticle(row: Row): ArticleWithCategory {
     slug: str(row.slug),
     excerpt: str(row.excerpt),
     content: str(row.content),
+    content_format: str(row.content_format) === "html" ? "html" : "markdown",
     cover: nullableStr(row.cover),
     category_id:
       row.category_id !== null && row.category_id !== undefined
@@ -116,9 +117,21 @@ async function initDbImpl() {
     )`,
   ]);
 
+  await ensureContentFormatColumn(client);
+
   const res = await client.execute("SELECT count(*) as c FROM categories");
   const count = Number(res.rows[0]?.c ?? 0);
   if (count === 0) await seedData(client);
+}
+
+async function ensureContentFormatColumn(client: ReturnType<typeof createClient>) {
+  const info = await client.execute("PRAGMA table_info(articles)");
+  const exists = info.rows.some((r) => str(r.name) === "content_format");
+  if (!exists) {
+    await client.execute(
+      "ALTER TABLE articles ADD COLUMN content_format TEXT DEFAULT 'markdown'"
+    );
+  }
 }
 
 async function seedData(client: ReturnType<typeof createClient>) {
@@ -172,6 +185,7 @@ export async function createArticle(data: {
   slug: string;
   excerpt?: string;
   content?: string;
+  content_format?: "html" | "markdown";
   cover?: string | null;
   category_id?: number | null;
   status?: string;
@@ -181,13 +195,14 @@ export async function createArticle(data: {
   const client = getDb();
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   const res = await client.execute({
-    sql: `INSERT INTO articles (title, slug, excerpt, content, cover, category_id, status, pinned, published_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO articles (title, slug, excerpt, content, content_format, cover, category_id, status, pinned, published_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       data.title,
       data.slug,
       data.excerpt ?? "",
       data.content ?? "",
+      data.content_format ?? "html",
       data.cover ?? null,
       data.category_id ?? null,
       data.status ?? "draft",
@@ -208,6 +223,7 @@ export async function updateArticle(
     slug: string;
     excerpt: string;
     content: string;
+    content_format: "html" | "markdown";
     cover: string | null;
     category_id: number | null;
     status: string;

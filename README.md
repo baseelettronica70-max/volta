@@ -19,10 +19,40 @@ In locale il database è un file SQLite in `data/volta.db` (creato e riempito au
 
 1. Vai su `/admin` e accedi.
 2. Clicca **Nuovo articolo**.
-3. Scrivi in **Markdown** (tabelle, codice, elenchi e quote lo supportano), usa l'**Anteprima** live.
+3. Scrivi normalmente nell'area di testo e usa la **barra degli strumenti** per formattare.
 4. Salva come **bozza** o **Pubblica** (se pubblichi compare sull'homepage).
 
+### La barra degli strumenti
+
+Non serve scrivere codice: seleziona il testo e premi il pulsante che ti serve.
+
+| Pulsante | Cosa fa |
+| --- | --- |
+| ↶ / ↷ | Annulla / ripeti |
+| H1 H2 H3 / ¶ | Titoli e paragrafo normale |
+| **B** *I* U ~~S~~ | Grassetto, corsivo, sottolineato, barrato |
+| 🧹 | Togli tutta la formattazione |
+| Elenchi | Elenco puntato e numerato |
+| " | Citazione |
+| Allineamenti | Sinistra, centro, destra |
+| 🔗 | Inserisci un link |
+| 🖼 | Inserisci un'immagine da URL |
+| ⊞ | Inserisci una tabella (chiede righe e colonne) |
+| `</>` | Blocco di codice |
+| — | Linea separatrice |
+| Colore / 🖍 | Colore del testo / evidenzia la selezione |
+| ∑ | **Simboli tecnici**: Ω, kΩ, A, mA, V, mV, ⎓, ⏚, ±, ≈, ∞, √, °C, frazioni… |
+
+Scorciatoie: `Ctrl+B` grassetto, `Ctrl+I` corsivo, `Ctrl+U` sottolineato, `Ctrl+Z` annulla.
+`Ctrl/Cmd+Shift+V` incolla solo il testo, senza formattazione.
+
+Sotto l'area di testo trovi il conteggio di parole, caratteri e il tempo di lettura stimato.
+C'è anche il pulsante **Anteprima** per vedere come apparirà l'articolo pubblicato.
+
 Il titolo genera automaticamente lo slug. Per la copertina incolla un **URL immagine** (es. foto da Unsplash); se lasci vuoto viene generato un gradiente automatico.
+
+> Gli articoli scritti con la vecchia versione in Markdown restano leggibili e mostrano
+> un pulsante per convertirli al formato visuale.
 
 ## Deploy gratuito online (Vercel)
 
@@ -90,7 +120,7 @@ turso db dump voltadb        # scarica backup
 
 ```
 app/           → pagine (Home, Articoli, Categorie, Chi sono, Admin)
-components/    → Navbar, ArticleCard, Hero, MarkdownRenderer…
+components/    → Navbar, ArticleCard, Hero, MarkdownRenderer, RichTextEditor, CharacterPalette, Icon…
 lib/           → db.ts (Turso/SQLite), auth.ts (sessioni), seed.ts (dati iniziali)
 data/          → database locale (solo dev, non committato)
 ```

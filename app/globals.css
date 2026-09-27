@@ -165,6 +165,53 @@ body {
 .prose-apple img {
   border-radius: 12px;
   margin: 1rem 0;
+  max-width: 100%;
+  height: auto;
+}
+.prose-apple mark {
+  background: #ffe680;
+  color: inherit;
+  padding: 0.1em 0.25em;
+  border-radius: 3px;
+}
+.dark .prose-apple mark {
+  background: #7a6320;
+  color: #fff;
+}
+.prose-apple iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin: 1rem 0;
+}
+.prose-apple hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0;
+}
+.prose-apple h4 {
+  font-size: 1.05rem;
+  line-height: 1.4;
+  margin: 1.25rem 0 0.4rem;
+}
+.prose-apple figcaption {
+  font-size: 0.8rem;
+  color: var(--foreground-secondary);
+  text-align: center;
+  margin-top: -0.5rem;
+}
+
+/* ─── Editor visuale (contentEditable) ─── */
+.rte-surface:focus {
+  outline: none;
+}
+.rte-surface:empty::before {
+  content: attr(data-placeholder);
+  color: var(--foreground-secondary);
+  opacity: 0.7;
+  pointer-events: none;
 }
 
 /* ─── Gradient cover colors ─── */

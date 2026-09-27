@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
+import RichTextEditor from "@/components/RichTextEditor";
 
 interface Category {
   id: number;
@@ -15,6 +16,7 @@ interface ArticleData {
   slug: string;
   excerpt: string;
   content: string;
+  content_format: "html" | "markdown";
   cover: string | null;
   category_id: number | null;
   status: string;
@@ -48,6 +50,7 @@ export default function EditorPage({
     slug: "",
     excerpt: "",
     content: "",
+    content_format: "html",
     cover: null,
     category_id: null,
     status: "draft",
@@ -55,6 +58,18 @@ export default function EditorPage({
   });
 
   const [titleTouched, setTitleTouched] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [dirty]);
 
   useEffect(() => {
     (async () => {
@@ -76,6 +91,7 @@ export default function EditorPage({
             slug: data.slug ?? "",
             excerpt: data.excerpt ?? "",
             content: data.content ?? "",
+            content_format: data.content_format === "markdown" ? "markdown" : "html",
             cover: data.cover ?? null,
             category_id: data.category_id ?? null,
             status: data.status ?? "draft",
@@ -86,7 +102,13 @@ export default function EditorPage({
     })();
   }, [params]);
 
+  const update = <K extends keyof ArticleData>(key: K, val: ArticleData[K]) => {
+    setDirty(true);
+    setForm((f) => ({ ...f, [key]: val }));
+  };
+
   const handleTitleChange = (val: string) => {
+    setDirty(true);
     setForm((f) => ({
       ...f,
       title: val,
@@ -97,6 +119,10 @@ export default function EditorPage({
   const handleSlugBlur = () => setTitleTouched(true);
 
   const handleSave = async (publish: boolean) => {
+    if (!form.title.trim()) {
+      setError("Il titolo è obbligatorio");
+      return;
+    }
     setSaving(true);
     setError("");
 
@@ -118,6 +144,7 @@ export default function EditorPage({
       });
 
       if (res.ok) {
+        setDirty(false);
         const data = await res.json();
         if (!articleId && data.id) {
           setArticleId(data.id);
@@ -154,6 +181,13 @@ export default function EditorPage({
           <h1 className="text-2xl font-bold tracking-tight">
             {isNew ? "Nuovo articolo" : "Modifica articolo"}
           </h1>
+          <p className="text-xs text-foreground-secondary mt-0.5">
+            {saving
+              ? "Salvataggio in corso…"
+              : dirty
+                ? "Hai delle modifiche non salvate"
+                : "Tutto salvato"}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -207,7 +241,7 @@ export default function EditorPage({
             <input
               type="text"
               value={form.slug}
-              onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
+              onChange={(e) => update("slug", e.target.value)}
               onBlur={handleSlugBlur}
               placeholder="slug-dell-articolo"
               className="w-full px-4 py-2.5 rounded-xl border border-border bg-card-bg text-sm font-mono focus:border-accent focus:outline-none transition-colors"
@@ -218,37 +252,80 @@ export default function EditorPage({
             <label className="block text-sm font-medium mb-1.5">Estratto</label>
             <textarea
               value={form.excerpt}
-              onChange={(e) => setForm((f) => ({ ...f, excerpt: e.target.value }))}
+              onChange={(e) => update("excerpt", e.target.value)}
               placeholder="Breve descrizione dell'articolo"
               rows={2}
               className="w-full px-4 py-2.5 rounded-xl border border-border bg-card-bg text-sm focus:border-accent focus:outline-none transition-colors resize-none"
             />
           </div>
 
-          {/* Markdown editor + preview */}
+          {/* Editor visuale con barra strumenti */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-medium">Contenuto (Markdown)</label>
-              <button
-                type="button"
-                onClick={() => setShowPreview(!showPreview)}
-                className="text-xs text-accent hover:underline"
-              >
-                {showPreview ? "Modifica" : "Anteprima"}
-              </button>
+            <div className="flex items-center justify-between mb-1.5 gap-2">
+              <label className="text-sm font-medium">Contenuto</label>
+              <div className="flex items-center gap-3">
+                {dirty && (
+                  <span className="text-[11px] text-foreground-secondary">
+                    ● Modifiche non salvate
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="text-xs text-accent hover:underline"
+                >
+                  {showPreview ? "Torna a scrivere" : "Anteprima"}
+                </button>
+              </div>
             </div>
 
             {showPreview ? (
-              <div className="min-h-[400px] border border-border rounded-xl p-5 bg-card-bg overflow-auto editor-preview">
-                <MarkdownRenderer content={form.content} />
+              <div className="min-h-[400px] border border-border rounded-xl p-5 bg-card-bg overflow-auto">
+                {form.content ? (
+                  <MarkdownRenderer
+                    content={form.content}
+                    format={form.content_format}
+                  />
+                ) : (
+                  <p className="text-sm text-foreground-secondary">
+                    Nessun contenuto da mostrare.
+                  </p>
+                )}
               </div>
+            ) : form.content_format === "markdown" ? (
+              <>
+                <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/30 bg-tag-bg px-3 py-2 text-xs text-foreground-secondary">
+                  Questo articolo è in formato Markdown (vecchio formato).
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          "Convertire in formato visuale? Il testo verrà riformattato, l'articolo resterà leggibile."
+                        )
+                      ) {
+                        setForm((f) => ({ ...f, content_format: "html" }));
+                        setDirty(true);
+                      }
+                    }}
+                    className="ml-auto font-medium text-accent hover:underline whitespace-nowrap"
+                  >
+                    Converti in visuale
+                  </button>
+                </div>
+                <textarea
+                  value={form.content}
+                  onChange={(e) => update("content", e.target.value)}
+                  placeholder="# Titolo&#10;&#10;Scrivi il tuo contenuto in Markdown..."
+                  rows={20}
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-card-bg text-sm font-mono leading-relaxed focus:border-accent focus:outline-none transition-colors resize-y min-h-[400px]"
+                />
+              </>
             ) : (
-              <textarea
+              <RichTextEditor
                 value={form.content}
-                onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
-                placeholder="# Titolo&#10;&#10;Scrivi il tuo contenuto in Markdown..."
-                rows={20}
-                className="w-full px-4 py-3 rounded-xl border border-border bg-card-bg text-sm font-mono leading-relaxed focus:border-accent focus:outline-none transition-colors resize-y min-h-[400px]"
+                onChange={(html) => update("content", html)}
+                placeholder="Scrivi il tuo articolo qui… Usa la barra qui sopra per formattare il testo."
               />
             )}
           </div>
@@ -266,10 +343,7 @@ export default function EditorPage({
               <select
                 value={form.category_id ?? ""}
                 onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    category_id: e.target.value ? Number(e.target.value) : null,
-                  }))
+                  update("category_id", e.target.value ? Number(e.target.value) : null)
                 }
                 className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:border-accent focus:outline-none"
               >
@@ -287,7 +361,7 @@ export default function EditorPage({
                 In evidenza
               </label>
               <button
-                onClick={() => setForm((f) => ({ ...f, pinned: f.pinned ? 0 : 1 }))}
+                onClick={() => update("pinned", form.pinned ? 0 : 1)}
                 className={`w-10 h-6 rounded-full transition-colors relative ${
                   form.pinned ? "bg-accent" : "bg-border"
                 }`}
@@ -312,7 +386,7 @@ export default function EditorPage({
                   className="w-full h-32 object-cover"
                 />
                 <button
-                  onClick={() => setForm((f) => ({ ...f, cover: null }))}
+                  onClick={() => update("cover", null)}
                   className="absolute top-2 right-2 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center text-white hover:bg-black/80"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
@@ -329,9 +403,7 @@ export default function EditorPage({
               <input
                 type="text"
                 value={form.cover ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, cover: e.target.value || null }))
-                }
+                onChange={(e) => update("cover", e.target.value || null)}
                 placeholder="https://..."
                 className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:border-accent focus:outline-none transition-colors"
               />

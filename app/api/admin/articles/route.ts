@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { COOKIE_NAME, validateSessionToken } from "@/lib/auth";
 import { createArticle } from "@/lib/db";
+import { sanitizeArticleHtml } from "@/lib/sanitize";
 import { nanoid } from "nanoid";
 
 function slugify(text: string): string {
@@ -43,11 +44,16 @@ export async function POST(request: Request) {
     }
 
     const slug = body.slug?.trim() || slugify(title) || nanoid(8);
+    const contentFormat = body.content_format === "markdown" ? "markdown" : "html";
+    const rawContent = typeof body.content === "string" ? body.content : "";
+
     const article = await createArticle({
       title,
       slug,
       excerpt: body.excerpt ?? "",
-      content: body.content ?? "",
+      content:
+        contentFormat === "html" ? sanitizeArticleHtml(rawContent) : rawContent,
+      content_format: contentFormat,
       cover: body.cover ?? null,
       category_id: body.category_id ?? null,
       status: body.status ?? "draft",

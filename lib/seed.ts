@@ -279,8 +279,8 @@ Una volta flashato l'ESP32, esso viene scoperto automaticamente da Home Assistan
       .slice(0, 19);
 
     await client.execute({
-      sql: `INSERT INTO articles (title, slug, excerpt, content, cover, category_id, status, pinned, published_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, NULL, ?, 'published', ?, ?, ?, ?)`,
+      sql: `INSERT INTO articles (title, slug, excerpt, content, content_format, cover, category_id, status, pinned, published_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'markdown', NULL, ?, 'published', ?, ?, ?, ?)`,
       args: [
         a.title,
         a.slug,
