@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import RichTextEditor from "@/components/RichTextEditor";
@@ -32,6 +32,11 @@ function slugify(text: string): string {
     .replace(/(^-|-$)+/g, "");
 }
 
+interface Draft {
+  form: ArticleData;
+  at: number;
+}
+
 export default function EditorPage({
   params,
 }: {
@@ -59,6 +64,9 @@ export default function EditorPage({
 
   const [titleTouched, setTitleTouched] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // Riferimento sempre aggiornato al form: serve agli handler che
+  // ascoltano eventi di pagina (pagehide) e non possono dipendere dallo stato.
+  const formRef = useRef<ArticleData>(form);
   // `hydrated` diventa true quando i dati iniziali sono caricati:
   // evita che l'autosave scatti appena si apre la pagina.
   const [hydrated, setHydrated] = useState(false);
@@ -67,6 +75,22 @@ export default function EditorPage({
   );
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [converting, setConverting] = useState(false);
+  // Copia di sicurezza del testo nel browser: sopravvive a refresh,
+  // chiusure accidentali e deploy, finché non viene salvata sul server.
+  const [pendingDraft, setPendingDraft] = useState<Draft | null>(null);
+  const draftKey = articleId ? `volta:bozza:${articleId}` : "volta:bozza:nuovo";
+
+  const writeDraft = useCallback((data: ArticleData) => {
+    try {
+      localStorage.setItem(
+        articleId ? `volta:bozza:${articleId}` : "volta:bozza:nuovo",
+        JSON.stringify({ form: data, at: Date.now() })
+      );
+    } catch {
+      /* quota pieno o storage non disponibile: l'autosave resta la garanzia */
+    }
+  }, [articleId]);
+
 
   useEffect(() => {
     const onLeave = (e: BeforeUnloadEvent) => {
@@ -113,16 +137,24 @@ export default function EditorPage({
 
   const update = <K extends keyof ArticleData>(key: K, val: ArticleData[K]) => {
     setDirty(true);
-    setForm((f) => ({ ...f, [key]: val }));
+    setForm((f) => {
+      const next = { ...f, [key]: val };
+      formRef.current = next;
+      return next;
+    });
   };
 
   const handleTitleChange = (val: string) => {
     setDirty(true);
-    setForm((f) => ({
-      ...f,
-      title: val,
-      slug: titleTouched ? f.slug : slugify(val),
-    }));
+    setForm((f) => {
+      const next = {
+        ...f,
+        title: val,
+        slug: titleTouched ? f.slug : slugify(val),
+      };
+      formRef.current = next;
+      return next;
+    });
   };
 
   const handleSlugBlur = () => setTitleTouched(true);
@@ -161,13 +193,31 @@ export default function EditorPage({
           setDirty(false);
           setSaveState("saved");
           setLastSaved(new Date());
+          setPendingDraft(null);
 
           if (!articleId && data.id) {
             setArticleId(data.id);
             setIsNew(false);
+            // Sposta la bozza locale sulla chiave dell'articolo e poi
+            // la rimuove: ora il testo è al sicuro sul server.
+            try {
+              const raw = localStorage.getItem("volta:bozza:nuovo");
+              if (raw) {
+                localStorage.setItem(`volta:bozza:${data.id}`, raw);
+                localStorage.removeItem("volta:bozza:nuovo");
+              }
+            } catch {
+              /* noop */
+            }
             // Aggiorna la barra degli indirizzi senza rimontare il
             // componente, così il testo non viene ricaricato dal server.
             window.history.replaceState(null, "", `/admin/editor/${data.id}`);
+          } else {
+            try {
+              localStorage.removeItem(`volta:bozza:${articleId}`);
+            } catch {
+              /* noop */
+            }
           }
           if (opts.status) {
             setForm((f) => ({ ...f, status: opts.status as string }));
@@ -204,6 +254,74 @@ export default function EditorPage({
     return () => clearTimeout(t);
   }, [dirty, form, handleSave, hydrated, saving]);
 
+  // ── Copia di sicurezza nel browser, scritta subito ──
+  useEffect(() => {
+    if (!hydrated || !dirty) return;
+    const t = setTimeout(() => writeDraft(form), 600);
+    return () => clearTimeout(t);
+  }, [dirty, form, hydrated, writeDraft]);
+
+  // ── Se la scheda viene chiusa o nascosta, salva subito ──
+  // beforeunload da solo non basta (non scatta su mobile, Safari, ecc.)
+  useEffect(() => {
+    const flush = () => {
+      if (!hydrated || !dirty) return;
+      writeDraft(formRef.current);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [dirty, hydrated, writeDraft]);
+
+  // ── Al caricamento cerca una bozza locale non ancora salvata ──
+  useEffect(() => {
+    if (!hydrated) return;
+    let found: Draft | null = null;
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (raw) {
+        const d = JSON.parse(raw) as Draft;
+        // Propone il ripristino solo se il testo non coincide col server.
+        if (
+          d?.form &&
+          (d.form.content !== formRef.current.content ||
+            d.form.title !== formRef.current.title)
+        ) {
+          found = d;
+        }
+      }
+    } catch {
+      /* bozza illeggibile: ignora */
+    }
+    if (!found) return;
+    // Rimandato di un tick per non fare setState sincrono dentro l'effetto.
+    const t = setTimeout(() => setPendingDraft(found), 0);
+    return () => clearTimeout(t);
+  }, [draftKey, hydrated]);
+
+  const discardDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {
+      /* noop */
+    }
+    setPendingDraft(null);
+  }, [draftKey]);
+
+  const restoreDraft = useCallback(() => {
+    if (!pendingDraft) return;
+    setForm(pendingDraft.form);
+    setDirty(true);
+    setPendingDraft(null);
+    setShowPreview(false);
+  }, [pendingDraft]);
+
 
   const handleDelete = async () => {
     if (!articleId) return;
@@ -213,6 +331,12 @@ export default function EditorPage({
       method: "DELETE",
     });
     if (res.ok) {
+      try {
+        localStorage.removeItem(`volta:bozza:${articleId}`);
+      } catch {
+        /* noop */
+      }
+      setPendingDraft(null);
       router.push("/admin");
     }
   };
@@ -280,6 +404,37 @@ export default function EditorPage({
       {error && (
         <div className="bg-danger/10 border border-danger/20 text-danger rounded-xl px-4 py-3 text-sm">
           {error}
+        </div>
+      )}
+
+      {pendingDraft && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-accent/30 bg-tag-bg px-4 py-3 text-sm">
+          <span>
+            C&apos;è del testo non salvato nel browser del{" "}
+            {new Date(pendingDraft.at).toLocaleString("it-IT", {
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+            . Vuoi riprenderlo?
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={restoreDraft}
+              className="px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-hover"
+            >
+              Ripristina il testo
+            </button>
+            <button
+              type="button"
+              onClick={discardDraft}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-foreground-secondary hover:underline"
+            >
+              Ignora
+            </button>
+          </div>
         </div>
       )}
 
