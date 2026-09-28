@@ -84,20 +84,26 @@ const STYLE_KEYS: StyleCmd[] = [
 
 export default function RichTextEditor({ value, onChange, placeholder }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const lastHtml = useRef(value);
+  // `null` (non `value`) così il primo effetto riempie sempre il contentEditable:
+  // al rimontaggio dopo l'anteprima il testo deve riapparire.
+  const lastHtml = useRef<string | null>(null);
   const savedRange = useRef<Range | null>(null);
   const [active, setActive] = useState<Record<string, boolean>>({});
   const [block, setBlock] = useState<string>("p");
   const [stats, setStats] = useState({ words: 0, chars: 0, time: 0 });
   const [showSymbols, setShowSymbols] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [empty, setEmpty] = useState(true);
 
   // ── Sincronizza il contenuto solo quando cambia davvero (caricamento articolo) ──
   const updateStats = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    const text = el.innerText.replace(/\s+/g, " ").trim();
+    // `innerText` non esiste in alcuni ambienti (es. jsdom): fallback a textContent.
+    const raw = el.innerText ?? el.textContent ?? "";
+    const text = raw.replace(/\s+/g, " ").trim();
     const words = text ? text.split(" ").length : 0;
+    setEmpty(text.length === 0);
     setStats({
       words,
       chars: text.length,
@@ -411,7 +417,7 @@ export default function RichTextEditor({ value, onChange, placeholder }: Props) 
 
       {/* ── Area di scrittura ── */}
       <div className="relative">
-        {!focused && !value && (
+        {!focused && empty && (
           <p className="absolute top-5 left-5 text-sm text-foreground-secondary/70 pointer-events-none select-none">
             {placeholder ?? "Scrivi il tuo articolo qui…"}
           </p>

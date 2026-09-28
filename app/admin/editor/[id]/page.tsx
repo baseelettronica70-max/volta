@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import RichTextEditor from "@/components/RichTextEditor";
@@ -59,6 +59,14 @@ export default function EditorPage({
 
   const [titleTouched, setTitleTouched] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // `hydrated` diventa true quando i dati iniziali sono caricati:
+  // evita che l'autosave scatti appena si apre la pagina.
+  const [hydrated, setHydrated] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">(
+    "idle"
+  );
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [converting, setConverting] = useState(false);
 
   useEffect(() => {
     const onLeave = (e: BeforeUnloadEvent) => {
@@ -99,6 +107,7 @@ export default function EditorPage({
           });
         }
       }
+      setHydrated(true);
     })();
   }, [params]);
 
@@ -118,49 +127,83 @@ export default function EditorPage({
 
   const handleSlugBlur = () => setTitleTouched(true);
 
-  const handleSave = async (publish: boolean) => {
-    if (!form.title.trim()) {
-      setError("Il titolo è obbligatorio");
-      return;
-    }
-    setSaving(true);
-    setError("");
-
-    const payload = {
-      ...form,
-      status: publish ? "published" : "draft",
-    };
-
-    const url = articleId
-      ? `/api/admin/articles/${articleId}`
-      : "/api/admin/articles";
-    const method = articleId ? "PATCH" : "POST";
-
-    try {
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        setDirty(false);
-        const data = await res.json();
-        if (!articleId && data.id) {
-          setArticleId(data.id);
-          setIsNew(false);
-          router.push(`/admin/editor/${data.id}`);
-        }
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "Errore durante il salvataggio");
+  const handleSave = useCallback(
+    async (opts: { status?: "draft" | "published"; silent?: boolean } = {}) => {
+      if (!form.title.trim()) {
+        if (!opts.silent) setError("Il titolo è obbligatorio");
+        return false;
       }
-    } catch {
-      setError("Errore di connessione");
-    } finally {
-      setSaving(false);
-    }
-  };
+      setSaving(true);
+      setSaveState("saving");
+      if (!opts.silent) setError("");
+
+      // Senza override lo status non cambia: l'autosave non deve
+      // ripubblicare o declassare un articolo.
+      const payload = {
+        ...form,
+        status: opts.status ?? form.status,
+      };
+
+      const url = articleId
+        ? `/api/admin/articles/${articleId}`
+        : "/api/admin/articles";
+      const method = articleId ? "PATCH" : "POST";
+
+      try {
+        const res = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setDirty(false);
+          setSaveState("saved");
+          setLastSaved(new Date());
+
+          if (!articleId && data.id) {
+            setArticleId(data.id);
+            setIsNew(false);
+            // Aggiorna la barra degli indirizzi senza rimontare il
+            // componente, così il testo non viene ricaricato dal server.
+            window.history.replaceState(null, "", `/admin/editor/${data.id}`);
+          }
+          if (opts.status) {
+            setForm((f) => ({ ...f, status: opts.status as string }));
+          }
+          return true;
+        }
+
+        setSaveState("error");
+        const data = await res.json().catch(() => ({}));
+        if (!opts.silent) {
+          setError(data.error ?? "Errore durante il salvataggio");
+        }
+        return false;
+      } catch {
+        setSaveState("error");
+        if (!opts.silent) setError("Errore di connessione");
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [articleId, form]
+  );
+
+  // ── Salvataggio automatico: 2,5 s di inattività ──
+  useEffect(() => {
+    if (!hydrated || !dirty || saving) return;
+    // Non creare bozze vuote: serve almeno un titolo.
+    if (!form.title.trim()) return;
+
+    const t = setTimeout(() => {
+      void handleSave({ silent: true });
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [dirty, form, handleSave, hydrated, saving]);
+
 
   const handleDelete = async () => {
     if (!articleId) return;
@@ -181,28 +224,46 @@ export default function EditorPage({
           <h1 className="text-2xl font-bold tracking-tight">
             {isNew ? "Nuovo articolo" : "Modifica articolo"}
           </h1>
-          <p className="text-xs text-foreground-secondary mt-0.5">
-            {saving
+          <p
+            className={`text-xs mt-0.5 ${
+              saveState === "error"
+                ? "text-danger"
+                : saveState === "saved"
+                  ? "text-success"
+                  : "text-foreground-secondary"
+            }`}
+          >
+            {saveState === "saving"
               ? "Salvataggio in corso…"
-              : dirty
-                ? "Hai delle modifiche non salvate"
-                : "Tutto salvato"}
+              : saveState === "error"
+                ? "Salvataggio non riuscito — verrà riprovato"
+                : saveState === "saved" && lastSaved
+                  ? `Salvato alle ${lastSaved.toLocaleTimeString("it-IT", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}`
+                  : dirty
+                    ? "Modifiche non salvate (salvataggio automatico in arrivo…)"
+                    : isNew
+                      ? "Inizia a scrivere: verrà salvato da solo"
+                      : "Tutto salvato"}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => handleSave(false)}
+            onClick={() => void handleSave({ status: "draft" })}
             disabled={saving}
             className="px-4 py-2 rounded-xl border border-border bg-card-bg text-sm font-medium hover:bg-background-secondary transition-colors disabled:opacity-50"
           >
             {saving ? "Salvataggio..." : "Salva bozza"}
           </button>
           <button
-            onClick={() => handleSave(true)}
+            onClick={() => void handleSave({ status: "published" })}
             disabled={saving}
             className="px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors disabled:opacity-50"
           >
-            Pubblica
+            {form.status === "published" ? "Aggiorna" : "Pubblica"}
           </button>
           {articleId && (
             <button
@@ -266,7 +327,7 @@ export default function EditorPage({
               <div className="flex items-center gap-3">
                 {dirty && (
                   <span className="text-[11px] text-foreground-secondary">
-                    ● Modifiche non salvate
+                    ● Non salvato
                   </span>
                 )}
                 <button
@@ -294,23 +355,39 @@ export default function EditorPage({
               </div>
             ) : form.content_format === "markdown" ? (
               <>
-                <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/30 bg-tag-bg px-3 py-2 text-xs text-foreground-secondary">
-                  Questo articolo è in formato Markdown (vecchio formato).
+                <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-accent/30 bg-tag-bg px-3 py-2 text-xs text-foreground-secondary">
+                  <span>
+                    Questo articolo è nel vecchio formato Markdown. Puoi convertirlo
+                    per scriverlo con la barra degli strumenti.
+                  </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (
-                        confirm(
-                          "Convertire in formato visuale? Il testo verrà riformattato, l'articolo resterà leggibile."
-                        )
-                      ) {
-                        setForm((f) => ({ ...f, content_format: "html" }));
+                    disabled={converting}
+                    onClick={async () => {
+                      setConverting(true);
+                      try {
+                        const { marked } = await import("marked");
+                        const html = await marked.parse(form.content, {
+                          async: true,
+                          gfm: true,
+                          breaks: true,
+                        });
+                        setForm((f) => ({
+                          ...f,
+                          content: String(html),
+                          content_format: "html",
+                        }));
                         setDirty(true);
+                        setShowPreview(false);
+                      } catch {
+                        setError("Conversione non riuscita");
+                      } finally {
+                        setConverting(false);
                       }
                     }}
-                    className="ml-auto font-medium text-accent hover:underline whitespace-nowrap"
+                    className="ml-auto font-medium text-accent hover:underline disabled:opacity-50 whitespace-nowrap"
                   >
-                    Converti in visuale
+                    {converting ? "Conversione…" : "Converti in visuale"}
                   </button>
                 </div>
                 <textarea
